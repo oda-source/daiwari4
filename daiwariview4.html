@@ -179,7 +179,7 @@
 <body>
   <div class="header-area">
     <div class="title-zone">
-      <h1 id="boardTitle">【極】台割り配置図 4</h1>
+      <h1 id="boardTitle">【極】台割り配置図</h1>
       <button id="undoBtn" class="history-btn undo-btn" onclick="executeUndo()">↩️ 戻る (<span id="undoCount">0</span>)</button>
       <button id="redoBtn" class="history-btn redo-btn" onclick="executeRedo()">↪️ 進む (<span id="redoCount">0</span>)</button>
       <button id="clearSelectionBtn" class="selection-btn" onclick="clearSelection()">☑️ 選択解除 (<span id="selectionCount">0</span>)</button>
@@ -406,7 +406,7 @@
         if (member && member.fullName) currentTrelloUserFullName = member.fullName;
         return t.board('name');
       }).then(function(board) {
-        if (board && board.name) { document.getElementById('boardTitle').innerText = board.name + ' 【極・台割り配置図 4】'; }
+        if (board && board.name) { document.getElementById('boardTitle').innerText = board.name + ' 【極・台割り配置図】'; }
         return t.get('board', 'shared', 'customPageCount', '24');
       }).then(function(savedCount) {
         const selectEl = document.getElementById('pageSelect');
@@ -486,8 +486,9 @@
     //    画面全体の並び方向（direction:rtl）で見た目だけを反転させる）
     function buildSortedPages() {
       const contentPages = basePages.filter(p => p !== 'H1' && p !== 'H4');
-      const coverPair = (bindingDirection === 'right') ? ['H1', 'H4'] : ['H4', 'H1'];
-      return [...coverPair, ...contentPages];
+      // 表紙・裏表紙の並び順は常に同じにし、右開き時の左右反転はCSSのdirection:rtlだけに任せる
+      // （ここでも入れ替えると二重に反転して元に戻ってしまうため）
+      return ['H4', 'H1', ...contentPages];
     }
 
     // 🌟 右開き時は、画面全体がRTLで反転しているため、
