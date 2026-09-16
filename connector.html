@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <!-- Trelloのシステムと通信するためだけの裏方ファイルです -->
+  <script src="https://p.trellocdn.com/power-up.min.js"></script>
+</head>
+<body>
+  <script>
+    TrelloPowerUp.initialize({
+      'board-buttons': function (t, options) {
+        return [{
+          icon: './daiwariview4-icon.svg',
+          text: '台割ビュー4',
+          callback: function (t) {
+            // ボタンが押されたら、画面用の daiwariview4.html を開く命令
+            return t.modal({
+              url: './daiwariview4.html',
+              fullscreen: true,
+              title: '【極】台割り配置図 4'
+            });
+          }
+        }];
+      }
+      // 'show-settings' は現状ページ数・綴じ方向の設定を本編画面(daiwariview4.html)側の
+      // プルダウンで直接行っているため、専用の設定ポップアップは用意していません。
+      // 小さいポップアップ内に本編グリッド全体を表示しようとすると窮屈になるため、
+      // 必要になったタイミングで専用の軽量な設定画面を別途作成してください。
+    });
+  </script>
+</body>
+</html>
