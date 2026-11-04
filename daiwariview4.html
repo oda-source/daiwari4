@@ -4,6 +4,8 @@
   <meta charset="UTF-8">
   <title>極 DM 台割りビュー 4</title>
   <script src="https://p.trellocdn.com/power-up.min.js"></script>
+  <!-- 🌟 ラベル編集機能用。Trello Power-Up管理画面「API Key」タブで取得したキーに書き換えてください -->
+  <script src="https://api.trello.com/1/client.js?key=YOUR_TRELLO_API_KEY_HERE"></script>
   <style>
     body { font-family: sans-serif; background: #b0b3b8; margin: 8px 24px; color: #172b4d; }
 
@@ -111,6 +113,7 @@
     .page-title { width: 100%; font-weight: bold; font-size: 15px; border-bottom: 1px solid #eee; padding-bottom: 2px; margin-bottom: 2px; color: #5e6c84; text-align: center; pointer-events: none; }
 
     .trello-card { background: #fff; border: 1px solid #ced4da; border-radius: 4px; padding: 0 0 4px 0; box-shadow: 0 1px 2px rgba(0,0,0,0.1); font-size: 11px; overflow: hidden; display: flex; flex-direction: column; min-width: 0; position: relative; cursor: grab !important; margin-bottom: 4px; user-select: none; box-sizing: border-box; }
+    .trello-card.resizable-card { resize: both; overflow: hidden; min-width: 60px; min-height: 50px; cursor: default !important; }
     .trello-card:active { cursor: grabbing !important; }
     .trello-card.dragging { opacity: 0.4; border: 1px dashed #999; }
     .trello-card.selected { border: 2px solid #0079bf !important; background: #e6f7ff !important; box-shadow: 0 0 8px rgba(0,121,191,0.4); }
@@ -125,7 +128,9 @@
       max-width: calc(50% - 3px) !important;
     }
 
-    .card-area-badge { display: block; font-size: 14px; font-weight: bold; padding: 4px 2px; text-align: center; color: #172b4d; background: #dfe1e6; pointer-events: none; cursor: inherit; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .card-area-badge { display: block; font-size: 14px; font-weight: bold; padding: 4px 16px 4px 2px; text-align: center; color: #172b4d; background: #dfe1e6; pointer-events: none; cursor: inherit; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .label-edit-btn { position: absolute; top: 2px; right: 2px; font-size: 10px; cursor: pointer !important; pointer-events: auto; z-index: 3; opacity: 0.75; }
+    .label-edit-btn:hover { opacity: 1; }
     .area-東北 { background: #ffe166 !important; color: #403000 !important; }
     .area-北海道 { background: #b3ffcc !important; color: #005c1e !important; }
     .area-関東 { background: #ffbdad !important; color: #5c0000 !important; }
@@ -159,7 +164,7 @@
     .card-footer { display: flex; justify-content: flex-end; margin-top: 2px; padding: 2px 2px 0 2px; border-top: 1px dashed #ebecf0; pointer-events: none; cursor: inherit; }
     .card-member { font-size: 10px; color: #5e6c84; background: #ebecf0; padding: 1px 2px; border-radius: 2px; font-weight: bold; cursor: inherit; }
 
-    .board-approval-section { grid-column: span 5; background: #ffffff; border: 3px solid #0079bf; border-radius: 6px; padding: 12px 16px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); display: flex; flex-direction: column; gap: 10px; align-self: start; }
+    .board-approval-section { grid-column: 1 / -1; background: #ffffff; border: 3px solid #0079bf; border-radius: 6px; padding: 12px 16px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); display: flex; flex-direction: column; gap: 10px; align-self: start; }
     .board-approval-title { font-size: 18px; font-weight: bold; color: #0079bf; margin: 0; border-bottom: 2px solid #ebecf0; padding-bottom: 6px; }
     .board-approval-list { display: flex; flex-wrap: wrap; gap: 10px; }
     .global-check-label { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: bold; color: #333; background: #f4f5f7; padding: 6px 12px; border-radius: 4px; border: 1px solid #ced4da; cursor: pointer; user-select: none; }
@@ -183,6 +188,9 @@
       <button id="undoBtn" class="history-btn undo-btn" onclick="executeUndo()">↩️ 戻る (<span id="undoCount">0</span>)</button>
       <button id="redoBtn" class="history-btn redo-btn" onclick="executeRedo()">↪️ 進む (<span id="redoCount">0</span>)</button>
       <button id="clearSelectionBtn" class="selection-btn" onclick="clearSelection()">☑️ 選択解除 (<span id="selectionCount">0</span>)</button>
+      <label class="selection-btn" style="cursor:pointer;">
+        <input type="checkbox" id="areaCheckToggle" onchange="toggleAreaCheckMode()" style="vertical-align:middle; margin-right:4px;">📐 面積確認モード
+      </label>
     </div>
     <div class="page-setter">
       綴じ方向:
@@ -233,16 +241,127 @@
 
   <script>
     const t = TrelloPowerUp.iframe();
+    // 🌟 <head>のclient.jsと同じキーをここにも設定してください（REST API呼び出し用）
+    const TRELLO_API_KEY = 'YOUR_TRELLO_API_KEY_HERE';
+    let currentBoardId = null;
+    let trelloToken = null;
+    let boardLabelsCache = null; // {id,name,color}[]
     let basePages = [];
     let cardList = [];
     let selectedCardIds = new Set();
     let currentTrelloUserFullName = "";
     let uniqueTantouNames = new Set();
+    let tantouCardIds = {}; // 担当者ラベル名 → そのラベルが付いているカードIDの配列
+
+    // 🌟 承認チェックは「その担当者のカード構成」の署名つきで保存する。
+    //    ラベルが追加・削除されたり、別号に切り替わって構成が変わると署名が合わなくなり、自動で未チェックに戻る
+    function getTantouSignature(name) {
+      const ids = (tantouCardIds[name] || []).slice().sort().join(',');
+      let h = 5381;
+      for (let i = 0; i < ids.length; i++) { h = ((h * 33) ^ ids.charCodeAt(i)) >>> 0; }
+      return h.toString(36);
+    }
     let bindingDirection = 'left'; // 'left' = 左開き, 'right' = 右開き
+    let areaCheckMode = false;
+
+    // ISO216の実寸(mm)。用紙名はカード名の中から検出する（縦位置＝ポートレート想定）
+    const PAPER_SIZES = {
+      'A3': { w: 297, h: 420 }, 'A4': { w: 210, h: 297 }, 'A5': { w: 148, h: 210 }, 'A6': { w: 105, h: 148 },
+      'B4': { w: 257, h: 364 }, 'B5': { w: 182, h: 257 }, 'B6': { w: 128, h: 182 }
+    };
+    const PX_PER_MM = 0.7; // 表示スケール（A4=147×208px相当）
+
+    function detectPaperSize(cardName) {
+      const m = String(cardName || '').toUpperCase().match(/\b(A[3-6]|B[4-6])\b/);
+      return (m && PAPER_SIZES[m[1]]) ? m[1] : null;
+    }
+
+    function toggleAreaCheckMode() {
+      areaCheckMode = document.getElementById('areaCheckToggle').checked;
+      renderCombinedGrid();
+    }
 
     let undoStack = [];
     let redoStack = [];
     const MAX_UNDO_DEPTH = 10;
+
+    // ---- ラベル編集（Trello本体のラベルを操作するのでREST APIを使う） ----
+
+    function ensureTrelloAuth() {
+      if (trelloToken) return Promise.resolve(trelloToken);
+      return t.loadSecret('trello_token').then(function(saved) {
+        if (saved) { trelloToken = saved; return trelloToken; }
+        return new Promise(function(resolve, reject) {
+          if (typeof Trello === 'undefined') { reject(new Error('Trello認証スクリプトが読み込まれていません（APIキー未設定の可能性があります）')); return; }
+          Trello.authorize({
+            type: 'popup',
+            name: '台割ビュー4（ラベル編集用）',
+            scope: { read: true, write: true },
+            expiration: 'never',
+            success: function() {
+              trelloToken = Trello.token();
+              t.storeSecret('trello_token', trelloToken).then(function() { resolve(trelloToken); });
+            },
+            error: function() { reject(new Error('Trello認証に失敗しました')); }
+          });
+        });
+      });
+    }
+
+    function fetchBoardLabels(forceRefresh) {
+      if (boardLabelsCache && !forceRefresh) return Promise.resolve(boardLabelsCache);
+      return ensureTrelloAuth().then(function(token) {
+        const url = 'https://api.trello.com/1/boards/' + currentBoardId + '/labels?key=' + TRELLO_API_KEY + '&token=' + token + '&limit=200';
+        return fetch(url).then(function(res) {
+          if (!res.ok) throw new Error('ラベル一覧の取得に失敗しました (' + res.status + ')');
+          return res.json();
+        });
+      }).then(function(labels) { boardLabelsCache = labels; return labels; });
+    }
+
+    function addLabelToCard(cardId, labelId) {
+      return ensureTrelloAuth().then(function(token) {
+        const url = 'https://api.trello.com/1/cards/' + cardId + '/idLabels?value=' + labelId + '&key=' + TRELLO_API_KEY + '&token=' + token;
+        return fetch(url, { method: 'POST' });
+      });
+    }
+
+    function removeLabelFromCard(cardId, labelId) {
+      return ensureTrelloAuth().then(function(token) {
+        const url = 'https://api.trello.com/1/cards/' + cardId + '/idLabels/' + labelId + '?key=' + TRELLO_API_KEY + '&token=' + token;
+        return fetch(url, { method: 'DELETE' });
+      });
+    }
+
+    function openLabelEditor(card) {
+      fetchBoardLabels().then(function(labels) {
+        const items = labels.map(function(label) {
+          const hasLabel = (card.labels || []).some(function(l) { return l.id === label.id; });
+          const labelText = (label.name && label.name.trim()) ? label.name.trim() : '（無題・' + label.color + '）';
+          return {
+            text: (hasLabel ? '✅ ' : '⬜ ') + labelText,
+            callback: function(innerT) {
+              const action = hasLabel ? removeLabelFromCard(card.id, label.id) : addLabelToCard(card.id, label.id);
+              return action.then(function() {
+                if (hasLabel) {
+                  card.labels = (card.labels || []).filter(function(l) { return l.id !== label.id; });
+                } else {
+                  card.labels = (card.labels || []).concat([label]);
+                }
+                renderCombinedGrid();
+                return openLabelEditor(card); // 選択状態を反映して開き直す
+              }).catch(function(err) {
+                alert('ラベルの更新に失敗しました：' + err.message);
+                return openLabelEditor(card);
+              });
+            }
+          };
+        });
+        return t.popup({ title: 'ラベルを編集', items: items });
+      }).catch(function(err) {
+        alert('ラベル情報の取得に失敗しました：' + err.message);
+      });
+    }
 
     function handleCardClick(e, cardId) {
       const cardEl = document.getElementById(cardId);
@@ -395,7 +514,7 @@
       }
 
       const isChecked = checkboxEl.checked;
-      t.set('board', 'shared', 'approval_status_' + tantouName, isChecked ? 'true' : 'false').then(function() {
+      t.set('board', 'shared', 'approval_status_' + tantouName, isChecked ? ('true:' + getTantouSignature(tantouName)) : 'false').then(function() {
         const parentLabel = checkboxEl.parentElement;
         if (isChecked) { parentLabel.classList.add('is-checked'); } else { parentLabel.classList.remove('is-checked'); }
       });
@@ -404,8 +523,9 @@
     function init() {
       t.member('fullName').then(function(member) {
         if (member && member.fullName) currentTrelloUserFullName = member.fullName;
-        return t.board('name');
+        return t.board('id', 'name');
       }).then(function(board) {
+        if (board && board.id) { currentBoardId = board.id; }
         if (board && board.name) { document.getElementById('boardTitle').innerText = board.name + ' 【極・台割り配置図】'; }
         return t.get('board', 'shared', 'customPageCount', '24');
       }).then(function(savedCount) {
@@ -427,6 +547,7 @@
         const cards = results[1] || [];
 
         uniqueTantouNames.clear();
+        tantouCardIds = {};
         const promises = cards.map(c => {
           if (!c || !c.name) return null;
 
@@ -435,14 +556,24 @@
           c.isFromChushiList = (listName === '中止コース' || listName.includes('中止'));
 
           if (c.labels && c.labels.length > 0) {
-            c.labels.forEach(l => { if (l && l.name && String(l.name).trim().endsWith('様')) { uniqueTantouNames.add(String(l.name).trim()); } });
+            c.labels.forEach(l => {
+              if (l && l.name && String(l.name).trim().endsWith('様')) {
+                const tName = String(l.name).trim();
+                uniqueTantouNames.add(tName);
+                (tantouCardIds[tName] = tantouCardIds[tName] || []).push(c.id);
+              }
+            });
           }
 
-          return t.get(c.id, 'shared', 'daiwari_page_num', '').then(savedVal => {
+          return Promise.all([
+            t.get(c.id, 'shared', 'daiwari_page_num', ''),
+            t.get(c.id, 'shared', 'daiwari_area_size', '')
+          ]).then(([savedVal, savedSize]) => {
             c.customPageNumValue = savedVal ? savedVal.trim() : '';
+            c.areaSizeOverride = savedSize ? savedSize.trim() : '';
             if (c.customPageNumValue === '中止') { c.isFromChushiList = true; }
             return c;
-          }).catch(() => { c.customPageNumValue = ''; return c; });
+          }).catch(() => { c.customPageNumValue = ''; c.areaSizeOverride = ''; return c; });
         }).filter(Boolean);
 
         return Promise.all(promises);
@@ -501,11 +632,37 @@
       return isEven ? 'pair-left' : 'pair-right';
     }
 
+    let globalResizeObserver = null;
+    function getResizeObserver() {
+      if (!globalResizeObserver) {
+        globalResizeObserver = new ResizeObserver(function(entries) {
+          entries.forEach(function(entry) {
+            const el = entry.target;
+            const card = cardList.find(c => c.id === el.id);
+            if (!card) return;
+            clearTimeout(el._resizeSaveTimer);
+            el._resizeSaveTimer = setTimeout(function() {
+              const newVal = Math.round(el.offsetWidth) + 'x' + Math.round(el.offsetHeight);
+              if (card.areaSizeOverride !== newVal) {
+                card.areaSizeOverride = newVal;
+                t.set(card.id, 'shared', 'daiwari_area_size', newVal).catch(function(){});
+              }
+            }, 500); // ドラッグ中に連続発火するので、止まってから0.5秒後にまとめて保存
+          });
+        });
+      }
+      return globalResizeObserver;
+    }
+
     function renderCombinedGrid() {
       const grid = document.getElementById('daiwariGrid'); const wakugaiGrid = document.getElementById('wakugaiGrid'); const chushiGrid = document.getElementById('chushiGrid');
       if (!grid || !wakugaiGrid || !chushiGrid) return;
 
       grid.classList.toggle('binding-right', bindingDirection === 'right');
+      if (globalResizeObserver) { globalResizeObserver.disconnect(); }
+      // 🌟 総ページ数が少ない場合は、固定8列ではなく実際に使う列数まで縮めて幅いっぱいに大きく表示する
+      const boxColumnCount = Math.max(2, Math.min(basePages.length, 8));
+      grid.style.gridTemplateColumns = 'repeat(' + boxColumnCount + ', 1fr)';
       grid.innerHTML = ''; wakugaiGrid.innerHTML = ''; chushiGrid.innerHTML = '';
       const skippedPages = new Set(); const activeCards = cardList.filter(c => !c.isFromChushiList);
       // 🌟 実際に本編グリッドへ配置できたカードを記録し、それ以外は理由を問わず必ず枠外へ回す
@@ -560,7 +717,9 @@
 
       const promises = sortedTantou.map(name => {
         return t.get('board', 'shared', 'approval_status_' + name, 'false').then(status => {
-          const isChecked = (status === 'true');
+          // 署名つき（'true:<署名>'）で、かつ今のカード構成と一致する場合のみチェック済み扱い。
+          // 旧形式の 'true' や署名が違う場合は未チェックとして表示する
+          const isChecked = (typeof status === 'string' && status.indexOf('true:') === 0 && status.slice(5) === getTantouSignature(name));
           const cleanTantou = name.replace('様', '').trim();
           const isMatch = currentTrelloUserFullName.includes(cleanTantou);
 
@@ -585,12 +744,39 @@
     }
 
     function createCardElement(card, targetBox) {
-      const cardEl = document.createElement('div'); cardEl.id = card.id; cardEl.draggable = true; cardEl.ondragstart = dragStart; cardEl.ondragend = dragEnd;
+      const cardEl = document.createElement('div'); cardEl.id = card.id; cardEl.draggable = !areaCheckMode; cardEl.ondragstart = dragStart; cardEl.ondragend = dragEnd;
 
       const pageVal = card.customPageNumValue || '';
       const isHorizontal = /[a-z]/.test(pageVal);
 
       cardEl.className = 'trello-card ' + (isHorizontal ? 'layout-horizontal' : 'layout-vertical');
+
+      const detectedSize = detectPaperSize(card.name);
+      if (areaCheckMode) {
+        cardEl.classList.add('resizable-card');
+        let wPx = null, hPx = null;
+        if (card.areaSizeOverride && /^\d+x\d+$/.test(card.areaSizeOverride)) {
+          const parts = card.areaSizeOverride.split('x');
+          wPx = parseInt(parts[0], 10); hPx = parseInt(parts[1], 10);
+        } else if (detectedSize) {
+          const dims = PAPER_SIZES[detectedSize];
+          wPx = Math.round(dims.w * PX_PER_MM); hPx = Math.round(dims.h * PX_PER_MM);
+        }
+        if (wPx && hPx) {
+          cardEl.style.width = wPx + 'px';
+          cardEl.style.height = hPx + 'px';
+          cardEl.style.maxWidth = 'none';
+          cardEl.style.flex = '0 0 auto';
+        }
+        // ダブルクリックで手動リサイズをリセットし、自動計算サイズに戻す
+        cardEl.addEventListener('dblclick', function(e) {
+          e.stopPropagation();
+          if (!card.areaSizeOverride) return;
+          card.areaSizeOverride = '';
+          t.set(card.id, 'shared', 'daiwari_area_size', '').catch(function(){});
+          renderCombinedGrid();
+        });
+      }
 
       if (selectedCardIds.has(card.id)) { cardEl.classList.add('selected'); }
 
@@ -621,6 +807,13 @@
       if (areaName.includes('中四国')) cleanAreaClass = '中四国';
 
       const areaHtml = `<div class="card-area-badge area-${cleanAreaClass}">${displayAreaName}</div>`; cardEl.insertAdjacentHTML('beforeend', areaHtml);
+
+      const labelEditBtn = document.createElement('span');
+      labelEditBtn.className = 'label-edit-btn';
+      labelEditBtn.innerText = '🏷️';
+      labelEditBtn.title = 'ラベルを編集';
+      labelEditBtn.addEventListener('click', function(e) { e.stopPropagation(); openLabelEditor(card); });
+      cardEl.appendChild(labelEditBtn);
 
       const innerContainer = document.createElement('div'); innerContainer.className = 'card-content';
       const wrapper = document.createElement('div'); wrapper.className = 'card-name-wrapper';
@@ -665,8 +858,12 @@
       }
 
       cardEl.appendChild(innerContainer);
+      if (areaCheckMode && detectedSize) {
+        cardEl.insertAdjacentHTML('beforeend', `<div style="position:absolute; bottom:2px; right:2px; background:#0079bf; color:#fff; font-size:10px; font-weight:bold; padding:1px 4px; border-radius:3px; pointer-events:none; z-index:3;">${detectedSize}</div>`);
+      }
       if (card.members && card.members.length > 0) { const mName = card.members[0].fullName || card.members[0].username || '担当'; cardEl.insertAdjacentHTML('beforeend', `<div class="card-footer"><span class="card-member">👤 ${mName}</span></div>`); }
       targetBox.appendChild(cardEl);
+      if (areaCheckMode) { getResizeObserver().observe(cardEl); }
     }
     t.render(init);
   </script>
