@@ -160,6 +160,7 @@
 
     .badge-sekiryou { background: #2f3542; color: #ffffff; }
     .badge-kouryou { background: #2ed573; color: #ffffff; }
+    .badge-tokushu { background: #8e44ad; color: #ffffff; }
 
     .card-footer { display: flex; justify-content: flex-end; margin-top: 2px; padding: 2px 2px 0 2px; border-top: 1px dashed #ebecf0; pointer-events: none; cursor: inherit; }
     .card-member { font-size: 10px; color: #5e6c84; background: #ebecf0; padding: 1px 2px; border-radius: 2px; font-weight: bold; cursor: inherit; }
@@ -785,7 +786,7 @@
         handleCardClick(e, card.id);
       });
 
-      let areaName = '未設定'; let tantouName = null; let sekiryouLabel = null;
+      let areaName = '未設定'; let tantouName = null; let sekiryouLabel = null; let tokushuLabel = null;
       try {
         if (card.labels && card.labels.length > 0) {
           const areaKeywords = ['北海道', '東北', '関東', '東海', '北信越', '中部', '近畿', '中国', '中四国', '四国', '九州', '沖縄', 'シルバーウィーク', '年末年始', '祭り'];
@@ -796,9 +797,10 @@
             const lName = String(l.name || '').trim();
             if (lName.endsWith('様')) { tantouName = lName; }
             if (lName === '責了' || lName === '校了') { sekiryouLabel = lName; }
+            if (lName === '特集') { tokushuLabel = lName; }
           });
         }
-      } catch(e) { areaName = '未設定'; tantouName = null; sekiryouLabel = null; }
+      } catch(e) { areaName = '未設定'; tantouName = null; sekiryouLabel = null; tokushuLabel = null; }
 
       const displayAreaName = areaName;
       let cleanAreaClass = areaName;
@@ -845,7 +847,7 @@
       });
       wrapper.appendChild(pencil); innerContainer.appendChild(wrapper);
 
-      if (tantouName || sekiryouLabel) {
+      if (tantouName || sekiryouLabel || tokushuLabel) {
         const badgeLine = document.createElement('div'); badgeLine.className = 'badge-info-line';
         if (tantouName) {
           badgeLine.innerHTML += `<span class="badge-label-item badge-tantou">${tantouName}</span>`;
@@ -853,6 +855,9 @@
         if (sekiryouLabel) {
           const badgeClass = sekiryouLabel === '校了' ? 'badge-kouryou' : 'badge-sekiryou';
           badgeLine.innerHTML += `<span class="badge-label-item ${badgeClass}">● ${sekiryouLabel}</span>`;
+        }
+        if (tokushuLabel) {
+          badgeLine.innerHTML += `<span class="badge-label-item badge-tokushu">● ${tokushuLabel}</span>`;
         }
         innerContainer.appendChild(badgeLine);
       }
